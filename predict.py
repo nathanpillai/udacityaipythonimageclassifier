@@ -20,7 +20,7 @@ import futils
 
 ap = argparse.ArgumentParser(
     description='predict-file')
-ap.add_argument('input_img', default='./flowers/test/1/image_06752.jpg', nargs='*', action="store", type = str)
+ap.add_argument('input_img', default='./flowers/test/20/image_04910.jpg', nargs='*', action="store", type = str)
 ap.add_argument('checkpoint', default='./checkpoint.pth', nargs='*', action="store",type = str)
 ap.add_argument('--top_k', default=5, dest="top_k", action="store", type=int)
 ap.add_argument('--category_names', dest="category_names", action="store", default='cat_to_name.json')
@@ -30,26 +30,20 @@ pa = ap.parse_args()
 path_image = pa.input_img
 number_of_outputs = pa.top_k
 power = pa.gpu
-input_img = pa.input_img
 path = pa.checkpoint
+cat_names=pa.category_names
 
 training_loader, testing_loader, validation_loader, train_data = futils.load_data()
 
 model = futils.load_checkpoint(path)
 
+if cat_names:
+    with open(cat_names, 'r') as json_file:
+        cat_to_name = json.load(json_file)
 
-with open('cat_to_name.json', 'r') as json_file:
-    cat_to_name = json.load(json_file)
+    prob, classes = futils.predict(path_image, model, number_of_outputs, power)
+    print('File selected: ' + path_image)
+    print(prob)
+    print(classes)
+    print([cat_to_name[x] for x in classes])
 
-
-probabilities = futils.predict(path_image, model, number_of_outputs, power)
-
-
-labels = [cat_to_name[str(index + 1)] for index in np.array(probabilities[1][0])]
-probability = np.array(probabilities[0][0])
-
-
-i=0
-while i < number_of_outputs:
-    print("{} with a probability of {}".format(labels[i], probability[i]))
-    i += 1

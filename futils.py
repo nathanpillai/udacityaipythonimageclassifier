@@ -1,5 +1,5 @@
 
-import os
+import os , random
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -15,6 +15,10 @@ import json
 import PIL
 from PIL import Image
 import argparse
+from matplotlib.ticker import FormatStrFormatter
+from torch.autograd import Variable
+import ast
+import time
 
 arch = {"vgg16":25088,
         "densenet121":1024,
@@ -223,46 +227,76 @@ def process_image(image_path):
     '''
     Arguments: The image's path
     Returns: The image as a tensor
-    This function opens the image usign the PIL package, applies the  necessery transformations and returns the image as a tensor ready to be fed to the network
+    This function opens the image usign the PIL package, applies the  necessery transformations and returns the image as a tensor ready     to be fed to the network
     '''
 
     '''for i in image_path:
         path = str(i)'''
-    img = Image.open(image_path) # Here we open the image
+    ''' Scales, crops, and normalizes a PIL image for a PyTorch model,
+        returns an Numpy array
+    '''
+    with Image.open(image_path) as image:  
+        imsssize = 256
+        cropsize = 224
+        # TODO: Process a PIL image for use in a PyTorch model
+        new_size = [0, 0]
 
-    make_img_good = transforms.Compose([ # Here as we did with the traini ng data we will define a set of
-        # transfomations that we will apply to the PIL image
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+        if image.size[0] > image.size[1]:
+            new_size = [image.size[0], imsssize]
+        else:    
+            new_size = [imsssize, image.size[1]]
 
-    tensor_image = make_img_good(img)
+        image.thumbnail(new_size, Image.ANTIALIAS)
+        width, height = image.size
 
-    return tensor_image
+        left = (imsssize - cropsize)/2
+        top = (imsssize - cropsize)/2
+        right = (imsssize + cropsize)/2
+        bottom = (imsssize + cropsize)/2
 
+        image = image.crop((left, top, right, bottom))
 
-def predict(image_path, model, topk=5,power='gpu'):
+        image = np.array(image)
+        image = image/255.
+
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        image = (image - mean) / std
+
+        image = np.transpose(image, (2, 0, 1))
+        
+        return image
+
+def predict(image_path, model, topk, gpu):
     '''
     Arguments: The path to the image, the model, the number of prefictions and whether cuda will be used or not
     Returns: The "topk" most probable choices that the network predicts
     '''
-
-    if torch.cuda.is_available() and power=='gpu':
-        model.to('cuda:0')
-
-    img_torch = process_image(image_path)
-    img_torch = img_torch.unsqueeze_(0)
-    img_torch = img_torch.float()
-
-    if power == 'gpu':
-        with torch.no_grad():
-            output = model.forward(img_torch.cuda())
+    model.eval()
+    cuda = torch.cuda.is_available()
+    if gpu and cuda:
+        model = model.cuda()
     else:
-        with torch.no_grad():
-            output=model.forward(img_torch)
-
-    probability = F.softmax(output.data,dim=1)
-
-    return probability.topk(topk)
+        model = model.cpu()
+        
+    np_array = process_image(image_path)
+    tensor = torch.from_numpy(np_array)
+    
+    if gpu and cuda:
+        inputs = Variable(tensor.float().cuda())
+    else:       
+        inputs = Variable(tensor)
+        
+    inputs = inputs.unsqueeze(0)
+    output = model.forward(inputs)
+    
+    ps = torch.exp(output).data.topk(topk)
+    probabilities = ps[0].cpu()
+    classes = ps[1].cpu()
+    class_to_idx_inverted = {model.class_to_idx[k]: k for k in model.class_to_idx}
+    mapped_classes = list()
+    
+    for label in classes.numpy()[0]:
+        mapped_classes.append(class_to_idx_inverted[label])
+        
+    return probabilities.numpy()[0], mapped_classes
